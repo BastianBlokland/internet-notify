@@ -149,7 +149,9 @@ func main() {
 		}
 
 		wasConnected = state.Connected
-		oldPublicIp = state.PublicIp
+		if len(state.PublicIp) > 0 {
+			oldPublicIp = state.PublicIp
+		}
 	}
 }
 
