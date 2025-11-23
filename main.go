@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -18,59 +19,92 @@ var (
 	tick                 time.Duration
 	connectivityEndpoint string
 	ipEndpoint           string
+	geoEndpoint          string
 	notificationExpiry   time.Duration
 
 	notificationExpiryMilliseconds int32
 )
 
+type GeoInfo struct {
+	Status  string `json:"status"`
+	Country string `json:"country"`
+}
+
 type State struct {
-	httpClient http.Client
-	connected  bool
-	publicIp   string
+	HttpClient http.Client
+	Connected  bool
+	PublicIp   string
+	Geo        *GeoInfo
 }
 
 func InitState() (*State, error) {
 	client := http.Client{Timeout: 5 * time.Second}
-	return &State{httpClient: client}, nil
+	return &State{HttpClient: client}, nil
 }
 
 func (s *State) QueryConnectivity() {
 	timeout := 5 * time.Second
 	conn, err := net.DialTimeout("tcp", connectivityEndpoint, timeout)
 	if err != nil {
-		s.connected = false
+		s.Connected = false
 	} else {
-		s.connected = true
+		s.Connected = true
 		conn.Close()
 	}
 }
 
 func (s *State) QueryPublicIp() {
-	if !s.connected {
-		s.publicIp = ""
+	if !s.Connected {
+		s.PublicIp = ""
 		return
 	}
-	resp, err := s.httpClient.Get(ipEndpoint)
+	resp, err := s.HttpClient.Get(ipEndpoint)
 	if err != nil {
-		s.publicIp = ""
+		s.PublicIp = ""
 		return
 	}
 	defer resp.Body.Close()
 
 	ip, err := io.ReadAll(resp.Body)
 	if err != nil {
-		s.publicIp = ""
+		s.PublicIp = ""
 		return
 	}
-	s.publicIp = strings.TrimSpace(string(ip))
+	s.PublicIp = strings.TrimSpace(string(ip))
+}
+
+func (s *State) QueryGeoInfo() {
+	if !s.Connected || len(s.PublicIp) == 0 {
+		s.Geo = nil
+		return
+	}
+	url := geoEndpoint + s.PublicIp
+	resp, err := s.HttpClient.Get(url)
+	if err != nil {
+		s.Geo = nil
+		return
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		s.Geo = nil
+		return
+	}
+	var geo GeoInfo
+	if err := json.Unmarshal(data, &geo); err != nil || geo.Status != "success" {
+		s.Geo = nil
+		return
+	}
+	s.Geo = &geo
 }
 
 func main() {
 
 	flag.BoolVar(&initialOnly, "initialOnly", false, "Exit after sending the initial notification.")
-	flag.DurationVar(&tick, "tick", 60*time.Second, "Update rate.")
+	flag.DurationVar(&tick, "tick", 30*time.Second, "Update rate.")
 	flag.StringVar(&connectivityEndpoint, "connectivity-endpoint", "8.8.8.8:53", "Server that accepts tcp connections.")
 	flag.StringVar(&ipEndpoint, "ip-endpoint", "https://api.ipify.org", "Server returns your public ip address over http.")
+	flag.StringVar(&geoEndpoint, "geo-endpoint", "http://ip-api.com/json/", "IP geolocation endpoint")
 	flag.DurationVar(&notificationExpiry, "notification-expiration", 10*time.Second, "Notifications expiry duration.")
 	flag.Parse()
 
@@ -83,6 +117,7 @@ func main() {
 
 	state.QueryConnectivity()
 	state.QueryPublicIp()
+	state.QueryGeoInfo()
 
 	notifier, err := notify.New("Internet Notify Agent")
 	if err != nil {
@@ -95,33 +130,39 @@ func main() {
 		return
 	}
 
-	var wasConnected = state.connected
-	var oldPublicIp = state.publicIp
+	var wasConnected = state.Connected
+	var oldPublicIp = state.PublicIp
 
 	for range time.Tick(tick) {
 		state.QueryConnectivity()
 		state.QueryPublicIp()
 
-		changedConnectivity := wasConnected != state.connected
-		changedPublicIp := (len(state.publicIp) > 0) && (oldPublicIp != state.publicIp)
+		changedConnectivity := wasConnected != state.Connected
+		changedPublicIp := (len(state.PublicIp) > 0) && (oldPublicIp != state.PublicIp)
+
+		if changedPublicIp {
+			state.QueryGeoInfo()
+		}
 
 		if changedConnectivity || changedPublicIp {
 			notifyState(state, notifier)
 		}
 
-		wasConnected = state.connected
-		oldPublicIp = state.publicIp
+		wasConnected = state.Connected
+		oldPublicIp = state.PublicIp
 	}
 }
 
 func notifyState(state *State, notifier *notify.Notifier) {
-	if state.connected {
+	if state.Connected {
 		msg := "Connected"
-		if len(state.publicIp) > 0 {
-			msg += fmt.Sprintf(" (%s)", state.publicIp)
+		if len(state.PublicIp) > 0 {
+			msg += fmt.Sprintf(" %s", state.PublicIp)
+		}
+		if state.Geo != nil {
+			msg += fmt.Sprintf(" %s", state.Geo.Country)
 		}
 		notifier.Normal("Internet", msg, notificationExpiryMilliseconds)
-
 	} else {
 		notifier.Normal("Internet", "Disconnected", notificationExpiryMilliseconds)
 	}
