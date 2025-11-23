@@ -38,7 +38,10 @@ type State struct {
 }
 
 func InitState() (*State, error) {
-	client := http.Client{Timeout: 5 * time.Second}
+	transport := &http.Transport{
+		DisableKeepAlives: true,
+	}
+	client := http.Client{Timeout: 5 * time.Second, Transport: transport}
 	return &State{HttpClient: client}, nil
 }
 
