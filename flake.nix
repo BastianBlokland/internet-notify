@@ -2,7 +2,7 @@
   description = "internet-notify";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-25.05";
+    nixpkgs.url = "nixpkgs/nixos-25.11";
   };
 
   outputs =
