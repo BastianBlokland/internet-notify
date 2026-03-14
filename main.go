@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -164,10 +163,10 @@ func notifyState(state *State, notifier *notify.Notifier) {
 	if state.Connected {
 		msg = "Connected"
 		if state.PublicIp != "" {
-			msg += fmt.Sprintf(" %s", state.PublicIp)
+			msg += " " + state.PublicIp
 		}
 		if state.Geo != nil {
-			msg += fmt.Sprintf(" %s", state.Geo.Country)
+			msg += " " + state.Geo.Country
 		}
 	} else {
 		msg = "Disconnected"
