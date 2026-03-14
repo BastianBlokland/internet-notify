@@ -142,8 +142,9 @@ func main() {
 
 		changedConnectivity := wasConnected != state.Connected
 		changedPublicIp := state.PublicIp != "" && oldPublicIp != state.PublicIp
+		reconnected := changedConnectivity && state.Connected
 
-		if changedPublicIp {
+		if changedPublicIp || reconnected {
 			state.QueryGeoInfo()
 		}
 
