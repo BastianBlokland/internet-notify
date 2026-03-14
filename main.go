@@ -76,7 +76,6 @@ func (s *State) QueryPublicIP() {
 
 func (s *State) QueryGeoInfo() {
 	if !s.Connected || s.PublicIP == "" {
-		s.Geo = nil
 		return
 	}
 	url := geoEndpoint + s.PublicIP
@@ -137,9 +136,8 @@ func main() {
 
 		changedConnectivity := wasConnected != state.Connected
 		changedPublicIP := state.PublicIP != "" && oldPublicIP != state.PublicIP
-		reconnected := changedConnectivity && state.Connected
 
-		if changedPublicIP || reconnected {
+		if changedPublicIP {
 			state.QueryGeoInfo()
 		}
 
