@@ -7,12 +7,9 @@
 package notify
 
 import (
-	"errors"
-
 	"github.com/godbus/dbus/v5"
 )
 
-var NoNotifications = errors.New("Couldn't get org.freedesktop.Notifications")
 
 type Urgency byte
 
@@ -46,10 +43,6 @@ func New(app string) (*Notifier, error) {
 		return nil, err
 	}
 	notification := conn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
-	if notification == nil {
-		return nil, NoNotifications
-	}
-
 	return &Notifier{dbus: notification, app: app}, nil
 }
 
