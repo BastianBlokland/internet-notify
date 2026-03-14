@@ -29,9 +29,9 @@ type GeoInfo struct {
 }
 
 type State struct {
-	HttpClient http.Client
+	HTTPClient http.Client
 	Connected  bool
-	PublicIp   string
+	PublicIP   string
 	Geo        *GeoInfo
 }
 
@@ -40,7 +40,7 @@ func InitState() *State {
 		DisableKeepAlives: true,
 	}
 	client := http.Client{Timeout: 5 * time.Second, Transport: transport}
-	return &State{HttpClient: client}
+	return &State{HTTPClient: client}
 }
 
 func (s *State) QueryConnectivity() {
@@ -54,33 +54,33 @@ func (s *State) QueryConnectivity() {
 	}
 }
 
-func (s *State) QueryPublicIp() {
+func (s *State) QueryPublicIP() {
 	if !s.Connected {
-		s.PublicIp = ""
+		s.PublicIP = ""
 		return
 	}
-	resp, err := s.HttpClient.Get(ipEndpoint)
+	resp, err := s.HTTPClient.Get(ipEndpoint)
 	if err != nil {
-		s.PublicIp = ""
+		s.PublicIP = ""
 		return
 	}
 	defer resp.Body.Close()
 
 	ip, err := io.ReadAll(resp.Body)
 	if err != nil {
-		s.PublicIp = ""
+		s.PublicIP = ""
 		return
 	}
-	s.PublicIp = strings.TrimSpace(string(ip))
+	s.PublicIP = strings.TrimSpace(string(ip))
 }
 
 func (s *State) QueryGeoInfo() {
-	if !s.Connected || s.PublicIp == "" {
+	if !s.Connected || s.PublicIP == "" {
 		s.Geo = nil
 		return
 	}
-	url := geoEndpoint + s.PublicIp
-	resp, err := s.HttpClient.Get(url)
+	url := geoEndpoint + s.PublicIP
+	resp, err := s.HTTPClient.Get(url)
 	if err != nil {
 		s.Geo = nil
 		return
@@ -112,7 +112,7 @@ func main() {
 	state := InitState()
 
 	state.QueryConnectivity()
-	state.QueryPublicIp()
+	state.QueryPublicIP()
 	state.QueryGeoInfo()
 
 	dbusConnSession, err := dbus.SessionBus()
@@ -129,27 +129,27 @@ func main() {
 	}
 
 	wasConnected := state.Connected
-	oldPublicIp := state.PublicIp
+	oldPublicIP := state.PublicIP
 
 	for range time.Tick(tick) {
 		state.QueryConnectivity()
-		state.QueryPublicIp()
+		state.QueryPublicIP()
 
 		changedConnectivity := wasConnected != state.Connected
-		changedPublicIp := state.PublicIp != "" && oldPublicIp != state.PublicIp
+		changedPublicIP := state.PublicIP != "" && oldPublicIP != state.PublicIP
 		reconnected := changedConnectivity && state.Connected
 
-		if changedPublicIp || reconnected {
+		if changedPublicIP || reconnected {
 			state.QueryGeoInfo()
 		}
 
-		if changedConnectivity || changedPublicIp {
+		if changedConnectivity || changedPublicIP {
 			notifyState(state, notifier)
 		}
 
 		wasConnected = state.Connected
-		if state.PublicIp != "" {
-			oldPublicIp = state.PublicIp
+		if state.PublicIP != "" {
+			oldPublicIP = state.PublicIP
 		}
 	}
 }
@@ -158,8 +158,8 @@ func notifyState(state *State, notifier *notify.Notifier) {
 	var msg string
 	if state.Connected {
 		msg = "Connected"
-		if state.PublicIp != "" {
-			msg += " " + state.PublicIp
+		if state.PublicIP != "" {
+			msg += " " + state.PublicIP
 		}
 		if state.Geo != nil {
 			msg += " " + state.Geo.Country
