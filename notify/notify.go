@@ -8,14 +8,6 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-type Urgency byte
-
-const (
-	Low Urgency = iota
-	Normal
-	Critical
-)
-
 type Notifier struct {
 	dbus dbus.BusObject
 
@@ -27,27 +19,15 @@ func New(conn *dbus.Conn, app string) *Notifier {
 	return &Notifier{dbus: notification, app: app}
 }
 
-func (n *Notifier) Low(summary string, body string, expireTimeout int32) error {
-	return n.Send(summary, body, Low, expireTimeout)
-}
-
 func (n *Notifier) Normal(summary string, body string, expireTimeout int32) error {
-	return n.Send(summary, body, Normal, expireTimeout)
-}
-
-func (n *Notifier) Critical(summary string, body string, expireTimeout int32) error {
-	return n.Send(summary, body, Critical, expireTimeout)
-}
-
-func (n *Notifier) Send(summary string, body string, urgency Urgency, expireTimeout int32) error {
 	return n.dbus.Call("org.freedesktop.Notifications.Notify", 0,
-		n.app, // app_name
-		uint32(0), // replaces_id
-		"", // app_icon
-		summary, // summary
-		body, // body
+		n.app,      // app_name
+		uint32(0),  // replaces_id
+		"",         // app_icon
+		summary,    // summary
+		body,       // body
 		[]string{}, // actions
-		map[string]dbus.Variant{"urgency": dbus.MakeVariant(urgency)},
-		expireTimeout,
+		map[string]dbus.Variant{"urgency": dbus.MakeVariant(byte(1))}, // hints (urgency: normal)
+		expireTimeout, // expire_timeout
 	).Err
 }
