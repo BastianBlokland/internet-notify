@@ -41,7 +41,7 @@
         # Avoid polluting our home directory.
         GOPATH = "${tmpDir}/go";
         GOENV = "${tmpDir}/go/env";
-        GOCACHE ="${tmpDir}/go/cache";
+        GOCACHE = "${tmpDir}/go/cache";
         GOMODCACHE = "${tmpDir}/go/pkg/mod";
         GOTELEMETRYDIR = "${tmpDir}/go/telemetry";
       };
