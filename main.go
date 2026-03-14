@@ -14,6 +14,16 @@ import (
 	"internet-notify/notify"
 )
 
+const (
+	networkdService      = "org.freedesktop.network1"
+	networkdLinkIface    = "org.freedesktop.network1.Link"
+	dbusPropsIface       = "org.freedesktop.DBus.Properties"
+	dbusPropsChanged     = dbusPropsIface + ".PropertiesChanged"
+	dbusNameOwnerChanged = "org.freedesktop.DBus.NameOwnerChanged"
+
+	minCheckInterval = 10 * time.Second
+)
+
 var (
 	initialOnly          bool
 	tick                 time.Duration
@@ -98,6 +108,38 @@ func (s *State) QueryGeoInfo() {
 	s.Geo = &geo
 }
 
+// shouldTriggerCheck returns true if the signal indicates a state transition
+// worth checking connectivity for. Only reacts to definitively connected
+// (routable) or disconnected (no-carrier, off, missing) states, ignoring
+// intermediate states like carrier and dormant to avoid consuming the
+// rate-limit window before the routable signal arrives.
+func shouldTriggerCheck(sig *dbus.Signal) bool {
+	if sig.Name != dbusPropsChanged {
+		return false
+	}
+	if len(sig.Body) < 2 {
+		return false
+	}
+	changed, ok := sig.Body[1].(map[string]dbus.Variant)
+	if !ok {
+		return false
+	}
+	v, ok := changed["OperationalState"]
+	if !ok {
+		return false
+	}
+	state, ok := v.Value().(string)
+	if !ok {
+		return false
+	}
+	switch state {
+	case "routable", "no-carrier", "off", "missing":
+		return true
+	default:
+		return false
+	}
+}
+
 func main() {
 
 	flag.BoolVar(&initialOnly, "initialOnly", false, "Exit after sending the initial notification.")
@@ -127,28 +169,81 @@ func main() {
 		return
 	}
 
+	// Attempt to subscribe to systemd-networkd signals for immediate checks.
+	var signals <-chan *dbus.Signal
+	dbusConnSystem, err := dbus.SystemBus()
+	if err != nil {
+		log.Printf("Could not connect to system bus, networkd signals disabled: %v", err)
+	} else {
+		err1 := dbusConnSystem.AddMatchSignal(
+			dbus.WithMatchSender(networkdService),
+			dbus.WithMatchInterface(dbusPropsIface),
+			dbus.WithMatchMember("PropertiesChanged"),
+			dbus.WithMatchArg(0, networkdLinkIface),
+		)
+		err2 := dbusConnSystem.AddMatchSignal(
+			dbus.WithMatchInterface("org.freedesktop.DBus"),
+			dbus.WithMatchMember("NameOwnerChanged"),
+			dbus.WithMatchArg(0, networkdService),
+		)
+			if err1 != nil {
+				log.Printf("Could not subscribe to networkd signals, falling back to polling: %v", err1)
+			}
+			if err2 != nil {
+				log.Printf("Could not subscribe to networkd signals, falling back to polling: %v", err2)
+			}
+		if err1 == nil && err2 == nil {
+			ch := make(chan *dbus.Signal, 16)
+			dbusConnSystem.Signal(ch)
+			signals = ch
+		}
+	}
+
 	wasConnected := state.Connected
 	oldPublicIP := state.PublicIP
+	lastCheck := time.Now()
 
-	for range time.Tick(tick) {
-		state.QueryConnectivity()
-		state.QueryPublicIP()
-
-		changedConnectivity := wasConnected != state.Connected
-		changedPublicIP := state.PublicIP != "" && oldPublicIP != state.PublicIP
-
-		if changedPublicIP {
-			state.QueryGeoInfo()
+	ticker := time.NewTicker(tick)
+	for {
+		select {
+		case sig := <-signals:
+			if sig.Name == dbusNameOwnerChanged {
+				log.Println("systemd-networkd service changed")
+				continue
+			}
+			if !shouldTriggerCheck(sig) {
+				continue
+			}
+			if time.Since(lastCheck) < minCheckInterval {
+				continue
+			}
+		case <-ticker.C:
+			if time.Since(lastCheck) < minCheckInterval {
+				continue
+			}
 		}
+		checkAndNotify(state, notifier, &wasConnected, &oldPublicIP)
+		lastCheck = time.Now()
+	}
+}
 
-		if changedConnectivity || changedPublicIP {
-			notifyState(state, notifier)
-		}
+func checkAndNotify(state *State, notifier *notify.Notifier, wasConnected *bool, oldPublicIP *string) {
+	state.QueryConnectivity()
+	state.QueryPublicIP()
 
-		wasConnected = state.Connected
-		if state.PublicIP != "" {
-			oldPublicIP = state.PublicIP
-		}
+	changedConnectivity := *wasConnected != state.Connected
+	changedPublicIP := state.PublicIP != "" && *oldPublicIP != state.PublicIP
+
+	if changedPublicIP {
+		state.QueryGeoInfo()
+	}
+	if changedConnectivity || changedPublicIP {
+		notifyState(state, notifier)
+	}
+
+	*wasConnected = state.Connected
+	if state.PublicIP != "" {
+		*oldPublicIP = state.PublicIP
 	}
 }
 
@@ -165,7 +260,7 @@ func notifyState(state *State, notifier *notify.Notifier) {
 	} else {
 		msg = "Disconnected"
 	}
-	if err := notifier.Normal("Internet", msg, int32(notificationExpiry / time.Millisecond)); err != nil {
+	if err := notifier.Normal("Internet", msg, int32(notificationExpiry/time.Millisecond)); err != nil {
 		log.Printf("Failed to send notification: %v", err)
 	}
 }
