@@ -160,16 +160,19 @@ func main() {
 }
 
 func notifyState(state *State, notifier *notify.Notifier) {
+	var msg string
 	if state.Connected {
-		msg := "Connected"
+		msg = "Connected"
 		if state.PublicIp != "" {
 			msg += fmt.Sprintf(" %s", state.PublicIp)
 		}
 		if state.Geo != nil {
 			msg += fmt.Sprintf(" %s", state.Geo.Country)
 		}
-		notifier.Normal("Internet", msg, notificationExpiryMilliseconds)
 	} else {
-		notifier.Normal("Internet", "Disconnected", notificationExpiryMilliseconds)
+		msg = "Disconnected"
+	}
+	if err := notifier.Normal("Internet", msg, notificationExpiryMilliseconds); err != nil {
+		log.Printf("Failed to send notification: %v", err)
 	}
 }
