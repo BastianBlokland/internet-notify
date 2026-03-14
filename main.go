@@ -21,8 +21,6 @@ var (
 	ipEndpoint           string
 	geoEndpoint          string
 	notificationExpiry   time.Duration
-
-	notificationExpiryMilliseconds int32
 )
 
 type GeoInfo struct {
@@ -111,8 +109,6 @@ func main() {
 	flag.DurationVar(&notificationExpiry, "notification-expiration", 10*time.Second, "Notifications expiry duration.")
 	flag.Parse()
 
-	notificationExpiryMilliseconds = int32(notificationExpiry / time.Millisecond)
-
 	state := InitState()
 
 	state.QueryConnectivity()
@@ -171,7 +167,7 @@ func notifyState(state *State, notifier *notify.Notifier) {
 	} else {
 		msg = "Disconnected"
 	}
-	if err := notifier.Normal("Internet", msg, notificationExpiryMilliseconds); err != nil {
+	if err := notifier.Normal("Internet", msg, int32(notificationExpiry / time.Millisecond)); err != nil {
 		log.Printf("Failed to send notification: %v", err)
 	}
 }
