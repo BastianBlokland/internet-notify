@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/godbus/dbus/v5"
 	"internet-notify/notify"
 )
 
@@ -119,10 +120,12 @@ func main() {
 	state.QueryPublicIp()
 	state.QueryGeoInfo()
 
-	notifier, err := notify.New("Internet Notify Agent")
+	dbusConnSession, err := dbus.SessionBus()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	notifier := notify.New(dbusConnSession, "Internet Notify Agent")
 
 	notifyState(state, notifier)
 

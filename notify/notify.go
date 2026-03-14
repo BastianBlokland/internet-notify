@@ -22,13 +22,9 @@ type Notifier struct {
 	app string
 }
 
-func New(app string) (*Notifier, error) {
-	conn, err := dbus.SessionBus()
-	if err != nil {
-		return nil, err
-	}
+func New(conn *dbus.Conn, app string) *Notifier {
 	notification := conn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
-	return &Notifier{dbus: notification, app: app}, nil
+	return &Notifier{dbus: notification, app: app}
 }
 
 func (n *Notifier) Low(summary string, body string, expireTimeout int32) error {
