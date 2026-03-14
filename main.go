@@ -158,7 +158,7 @@ func main() {
 
 	dbusConnSession, err := dbus.SessionBus()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to connect to session bus: %v", err)
 	}
 
 	notifier := notify.New(dbusConnSession, "Internet Notify Agent")
@@ -173,7 +173,7 @@ func main() {
 	var signals <-chan *dbus.Signal
 	dbusConnSystem, err := dbus.SystemBus()
 	if err != nil {
-		log.Printf("Could not connect to system bus, networkd signals disabled: %v", err)
+		log.Printf("Failed to connect to system bus, networkd signals disabled: %v", err)
 	} else {
 		err1 := dbusConnSystem.AddMatchSignal(
 			dbus.WithMatchSender(networkdService),
@@ -186,12 +186,12 @@ func main() {
 			dbus.WithMatchMember("NameOwnerChanged"),
 			dbus.WithMatchArg(0, networkdService),
 		)
-			if err1 != nil {
-				log.Printf("Could not subscribe to networkd signals, falling back to polling: %v", err1)
-			}
-			if err2 != nil {
-				log.Printf("Could not subscribe to networkd signals, falling back to polling: %v", err2)
-			}
+		if err1 != nil {
+			log.Printf("Failed to subscribe to networkd signals, falling back to polling: %v", err1)
+		}
+		if err2 != nil {
+			log.Printf("Failed to subscribe to networkd signals, falling back to polling: %v", err2)
+		}
 		if err1 == nil && err2 == nil {
 			ch := make(chan *dbus.Signal, 16)
 			dbusConnSystem.Signal(ch)
@@ -208,7 +208,7 @@ func main() {
 		select {
 		case sig := <-signals:
 			if sig.Name == dbusNameOwnerChanged {
-				log.Println("systemd-networkd service changed")
+				log.Printf("systemd-networkd service changed")
 				continue
 			}
 			if !shouldTriggerCheck(sig) {
