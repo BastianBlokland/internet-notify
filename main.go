@@ -37,12 +37,12 @@ type State struct {
 	Geo        *GeoInfo
 }
 
-func InitState() (*State, error) {
+func InitState() *State {
 	transport := &http.Transport{
 		DisableKeepAlives: true,
 	}
 	client := http.Client{Timeout: 5 * time.Second, Transport: transport}
-	return &State{HttpClient: client}, nil
+	return &State{HttpClient: client}
 }
 
 func (s *State) QueryConnectivity() {
@@ -77,7 +77,7 @@ func (s *State) QueryPublicIp() {
 }
 
 func (s *State) QueryGeoInfo() {
-	if !s.Connected || len(s.PublicIp) == 0 {
+	if !s.Connected || s.PublicIp == "" {
 		s.Geo = nil
 		return
 	}
@@ -113,10 +113,7 @@ func main() {
 
 	notificationExpiryMilliseconds = int32(notificationExpiry / time.Millisecond)
 
-	state, err := InitState()
-	if err != nil {
-		log.Fatal(err)
-	}
+	state := InitState()
 
 	state.QueryConnectivity()
 	state.QueryPublicIp()
@@ -133,15 +130,15 @@ func main() {
 		return
 	}
 
-	var wasConnected = state.Connected
-	var oldPublicIp = state.PublicIp
+	wasConnected := state.Connected
+	oldPublicIp := state.PublicIp
 
 	for range time.Tick(tick) {
 		state.QueryConnectivity()
 		state.QueryPublicIp()
 
 		changedConnectivity := wasConnected != state.Connected
-		changedPublicIp := (len(state.PublicIp) > 0) && (oldPublicIp != state.PublicIp)
+		changedPublicIp := state.PublicIp != "" && oldPublicIp != state.PublicIp
 
 		if changedPublicIp {
 			state.QueryGeoInfo()
@@ -152,7 +149,7 @@ func main() {
 		}
 
 		wasConnected = state.Connected
-		if len(state.PublicIp) > 0 {
+		if state.PublicIp != "" {
 			oldPublicIp = state.PublicIp
 		}
 	}
@@ -161,7 +158,7 @@ func main() {
 func notifyState(state *State, notifier *notify.Notifier) {
 	if state.Connected {
 		msg := "Connected"
-		if len(state.PublicIp) > 0 {
+		if state.PublicIp != "" {
 			msg += fmt.Sprintf(" %s", state.PublicIp)
 		}
 		if state.Geo != nil {
