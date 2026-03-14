@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/godbus/dbus/v5"
 	"internet-notify/notify"
 )
 
@@ -21,8 +21,6 @@ var (
 	ipEndpoint           string
 	geoEndpoint          string
 	notificationExpiry   time.Duration
-
-	notificationExpiryMilliseconds int32
 )
 
 type GeoInfo struct {
@@ -31,18 +29,18 @@ type GeoInfo struct {
 }
 
 type State struct {
-	HttpClient http.Client
+	HTTPClient http.Client
 	Connected  bool
-	PublicIp   string
+	PublicIP   string
 	Geo        *GeoInfo
 }
 
-func InitState() (*State, error) {
+func InitState() *State {
 	transport := &http.Transport{
 		DisableKeepAlives: true,
 	}
 	client := http.Client{Timeout: 5 * time.Second, Transport: transport}
-	return &State{HttpClient: client}, nil
+	return &State{HTTPClient: client}
 }
 
 func (s *State) QueryConnectivity() {
@@ -56,33 +54,32 @@ func (s *State) QueryConnectivity() {
 	}
 }
 
-func (s *State) QueryPublicIp() {
+func (s *State) QueryPublicIP() {
 	if !s.Connected {
-		s.PublicIp = ""
+		s.PublicIP = ""
 		return
 	}
-	resp, err := s.HttpClient.Get(ipEndpoint)
+	resp, err := s.HTTPClient.Get(ipEndpoint)
 	if err != nil {
-		s.PublicIp = ""
+		s.PublicIP = ""
 		return
 	}
 	defer resp.Body.Close()
 
 	ip, err := io.ReadAll(resp.Body)
 	if err != nil {
-		s.PublicIp = ""
+		s.PublicIP = ""
 		return
 	}
-	s.PublicIp = strings.TrimSpace(string(ip))
+	s.PublicIP = strings.TrimSpace(string(ip))
 }
 
 func (s *State) QueryGeoInfo() {
-	if !s.Connected || len(s.PublicIp) == 0 {
-		s.Geo = nil
+	if !s.Connected || s.PublicIP == "" {
 		return
 	}
-	url := geoEndpoint + s.PublicIp
-	resp, err := s.HttpClient.Get(url)
+	url := geoEndpoint + s.PublicIP
+	resp, err := s.HTTPClient.Get(url)
 	if err != nil {
 		s.Geo = nil
 		return
@@ -111,21 +108,18 @@ func main() {
 	flag.DurationVar(&notificationExpiry, "notification-expiration", 10*time.Second, "Notifications expiry duration.")
 	flag.Parse()
 
-	notificationExpiryMilliseconds = int32(notificationExpiry / time.Millisecond)
-
-	state, err := InitState()
-	if err != nil {
-		log.Fatal(err)
-	}
+	state := InitState()
 
 	state.QueryConnectivity()
-	state.QueryPublicIp()
+	state.QueryPublicIP()
 	state.QueryGeoInfo()
 
-	notifier, err := notify.New("Internet Notify Agent")
+	dbusConnSession, err := dbus.SessionBus()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	notifier := notify.New(dbusConnSession, "Internet Notify Agent")
 
 	notifyState(state, notifier)
 
@@ -133,42 +127,45 @@ func main() {
 		return
 	}
 
-	var wasConnected = state.Connected
-	var oldPublicIp = state.PublicIp
+	wasConnected := state.Connected
+	oldPublicIP := state.PublicIP
 
 	for range time.Tick(tick) {
 		state.QueryConnectivity()
-		state.QueryPublicIp()
+		state.QueryPublicIP()
 
 		changedConnectivity := wasConnected != state.Connected
-		changedPublicIp := (len(state.PublicIp) > 0) && (oldPublicIp != state.PublicIp)
+		changedPublicIP := state.PublicIP != "" && oldPublicIP != state.PublicIP
 
-		if changedPublicIp {
+		if changedPublicIP {
 			state.QueryGeoInfo()
 		}
 
-		if changedConnectivity || changedPublicIp {
+		if changedConnectivity || changedPublicIP {
 			notifyState(state, notifier)
 		}
 
 		wasConnected = state.Connected
-		if len(state.PublicIp) > 0 {
-			oldPublicIp = state.PublicIp
+		if state.PublicIP != "" {
+			oldPublicIP = state.PublicIP
 		}
 	}
 }
 
 func notifyState(state *State, notifier *notify.Notifier) {
+	var msg string
 	if state.Connected {
-		msg := "Connected"
-		if len(state.PublicIp) > 0 {
-			msg += fmt.Sprintf(" %s", state.PublicIp)
+		msg = "Connected"
+		if state.PublicIP != "" {
+			msg += " " + state.PublicIP
 		}
 		if state.Geo != nil {
-			msg += fmt.Sprintf(" %s", state.Geo.Country)
+			msg += " " + state.Geo.Country
 		}
-		notifier.Normal("Internet", msg, notificationExpiryMilliseconds)
 	} else {
-		notifier.Normal("Internet", "Disconnected", notificationExpiryMilliseconds)
+		msg = "Disconnected"
+	}
+	if err := notifier.Normal("Internet", msg, int32(notificationExpiry / time.Millisecond)); err != nil {
+		log.Printf("Failed to send notification: %v", err)
 	}
 }

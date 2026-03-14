@@ -1,5 +1,3 @@
-//go:generate stringer -type=Urgency
-
 // Source: github.com/omeid/upower-notify/notify/notify.go
 // A minimal binding for DBus Desktop Notifications,
 // it is designed to be as simple as send-notify.
@@ -7,31 +5,8 @@
 package notify
 
 import (
-	"errors"
-
 	"github.com/godbus/dbus/v5"
 )
-
-var NoNotifications = errors.New("Couldn't get org.freedesktop.Notifications")
-
-type Urgency byte
-
-const (
-	Low Urgency = iota
-	Normal
-	Critical
-)
-
-type Message struct {
-	AppName       string
-	ReplacesId    uint32
-	AppIcon       string
-	Summary       string
-	Body          string
-	Actions       []string
-	Hints         map[string]dbus.Variant
-	ExpireTimeout int32
-}
 
 type Notifier struct {
 	dbus dbus.BusObject
@@ -39,54 +14,20 @@ type Notifier struct {
 	app string
 }
 
-func New(app string) (*Notifier, error) {
-
-	conn, err := dbus.SessionBus()
-	if err != nil {
-		return nil, err
-	}
+func New(conn *dbus.Conn, app string) *Notifier {
 	notification := conn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
-	if notification == nil {
-		return nil, NoNotifications
-	}
-
-	return &Notifier{dbus: notification, app: app}, nil
+	return &Notifier{dbus: notification, app: app}
 }
 
-func (n *Notifier) Low(Summary string, Body string, ExpireTimeout int32) error {
-	return n.Send(Summary, Body, Low, ExpireTimeout)
-}
-
-func (n *Notifier) Normal(Summary string, Body string, ExpireTimeout int32) error {
-	return n.Send(Summary, Body, Normal, ExpireTimeout)
-}
-
-func (n *Notifier) Critical(Summary string, Body string, ExpireTimeout int32) error {
-	return n.Send(Summary, Body, Critical, ExpireTimeout)
-}
-
-func (n *Notifier) SendMessage(m *Message) error {
-
+func (n *Notifier) Normal(summary string, body string, expireTimeout int32) error {
 	return n.dbus.Call("org.freedesktop.Notifications.Notify", 0,
-		m.AppName,
-		m.ReplacesId,
-		m.AppIcon,
-		m.Summary,
-		m.Body,
-		m.Actions,
-		m.Hints,
-		m.ExpireTimeout,
+		n.app,      // app_name
+		uint32(0),  // replaces_id
+		"",         // app_icon
+		summary,    // summary
+		body,       // body
+		[]string{}, // actions
+		map[string]dbus.Variant{"urgency": dbus.MakeVariant(byte(1))}, // hints (urgency: normal)
+		expireTimeout, // expire_timeout
 	).Err
-}
-
-func (n *Notifier) Send(Summary string, Body string, urgency Urgency, ExpireTimeout int32) error {
-	return n.SendMessage(&Message{
-		n.app,
-		0,
-		"",
-		Summary,
-		Body,
-		[]string{},
-		map[string]dbus.Variant{"urgency": dbus.MakeVariant(urgency)},
-		ExpireTimeout})
 }
